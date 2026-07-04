@@ -1,0 +1,16 @@
+{
+  "name": "demo_sound_designer",
+  "density": 0.85,
+  "global_intensity": 0.95,
+  "default_style": "restrained",
+  "event_intensity": {
+    "contact": 0.72,
+    "footstep": 1.15
+  },
+  "object_profiles": {
+    "person": {"intensity": 1.1, "texture": "heavy"},
+    "door_or_prop": {"prefer_short": true}
+  },
+  "avoided_event_types": [],
+  "preferred_variants": {"restrained": 2}
+}

@@ -1,0 +1,10 @@
+services:
+  sonicframe:
+    build: .
+    ports:
+      - "8000:8000"
+      - "8501:8501"
+    volumes:
+      - ./workspace:/app/workspace
+    environment:
+      - SONICFRAME_WORKSPACE=/app/workspace

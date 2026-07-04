@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+workspace/uploads/*
+workspace/exports/*
+workspace/projects/*.json
+!workspace/uploads/.gitkeep
+!workspace/exports/.gitkeep
+!workspace/projects/.gitkeep

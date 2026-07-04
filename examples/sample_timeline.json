@@ -1,0 +1,24 @@
+{
+  "style": "balanced",
+  "global_explanation": "샘플 타임라인: 문 접촉음은 낮은 강도로, 발소리는 약간 무겁게 계획되었습니다.",
+  "events": [
+    {
+      "start": 1.0,
+      "end": 1.22,
+      "label": "person footstep (balanced)",
+      "sound_type": "footstep",
+      "volume": 0.68,
+      "intensity": 0.82,
+      "why": "person motion과 이전 발소리 강화 피드백 기반"
+    },
+    {
+      "start": 3.08,
+      "end": 3.38,
+      "label": "door contact (restrained)",
+      "sound_type": "contact",
+      "volume": 0.42,
+      "intensity": 0.51,
+      "why": "door contact score는 높지만 사용자가 충돌음을 과하다고 피드백"
+    }
+  ]
+}
