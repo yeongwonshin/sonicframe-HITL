@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import io
+import os
 from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 
@@ -12,11 +15,18 @@ except Exception:  # pragma: no cover
     sf = None
 
 
-class ProceduralAudioEngine:
-    """Fast procedural renderer for previewable hackathon demos.
+class AudioRenderBackend(Protocol):
+    def render_timeline(self, timeline: SoundTimeline, output_path: str | Path) -> str: ...
 
-    Each timeline event is synthesized locally so the project can run without paid APIs.
-    Real deployments can swap this class for Foley libraries, diffusion audio, or DAWs.
+    def render_candidate_preview(self, event: SoundEvent, candidate: CandidateSound, output_path: str | Path) -> str: ...
+
+
+class ProceduralAudioEngine:
+    """Fast procedural renderer for previewable demos.
+
+    The class remains the reliable offline fallback. New production paths are
+    exposed through FoleyAssetEngine and HostedGenerativeAudioEngine while keeping
+    this same public interface, so API/CLI code can swap engines by environment.
     """
 
     def __init__(self, sample_rate: int = 44100) -> None:
@@ -91,7 +101,6 @@ class ProceduralAudioEngine:
         rng = np.random.default_rng(777 + n)
         t = np.linspace(0, 1, n, endpoint=False)
         noise = rng.normal(0, 1, n)
-        # crude high-pass sweep without scipy
         hp = noise - np.concatenate([[0], noise[:-1]])
         sweep = np.sin(2 * np.pi * (120 + 500 * t**1.6) * np.arange(n) / self.sample_rate)
         env = np.sin(np.pi * t) ** 1.6
@@ -113,7 +122,6 @@ class ProceduralAudioEngine:
         return self._normalize((0.22 * smoothed + hum) * env * (0.25 + intensity * 0.25))
 
     def _pan(self, mono: np.ndarray, pan: float) -> np.ndarray:
-        # constant-power panning
         pan = max(-1.0, min(1.0, pan))
         left = np.cos((pan + 1) * np.pi / 4)
         right = np.sin((pan + 1) * np.pi / 4)
@@ -138,3 +146,156 @@ class ProceduralAudioEngine:
             f.setsampwidth(2)
             f.setframerate(self.sample_rate)
             f.writeframes(pcm.tobytes())
+
+
+class FoleyAssetEngine(ProceduralAudioEngine):
+    """Renderer that prefers curated Foley assets and falls back to procedural audio.
+
+    Directory convention examples:
+      assets/foley/contact/door/*.wav
+      assets/foley/footstep/person/*.wav
+      assets/foley/motion/*.wav
+
+    This gives a concrete path beyond procedural preview without forcing any paid
+    API dependency into the base repository.
+    """
+
+    def __init__(self, asset_dir: str | Path, sample_rate: int = 44100) -> None:
+        super().__init__(sample_rate=sample_rate)
+        self.asset_dir = Path(asset_dir)
+
+    def synthesize_event(self, event: SoundEvent, min_duration: float = 0.0) -> np.ndarray:
+        asset = self._find_asset(event)
+        if asset is None:
+            return super().synthesize_event(event, min_duration=min_duration)
+        try:
+            clip = self._load_asset(asset)
+        except Exception:
+            return super().synthesize_event(event, min_duration=min_duration)
+        clip = self._fit_duration(clip, max(min_duration, event.end - event.start, 0.05))
+        clip = self._apply_gain_and_pan(clip, event.volume, event.intensity, event.pan)
+        return clip.astype(np.float32)
+
+    def _find_asset(self, event: SoundEvent) -> Path | None:
+        safe_object = event.object_label.replace("/", "_")
+        candidates = [
+            self.asset_dir / event.sound_type / safe_object,
+            self.asset_dir / event.sound_type,
+            self.asset_dir / safe_object,
+        ]
+        files: list[Path] = []
+        for folder in candidates:
+            if folder.exists():
+                files.extend(sorted(folder.glob("*.wav")))
+        if not files:
+            return None
+        idx = abs(hash((event.sound_type, event.object_label, event.id))) % len(files)
+        return files[idx]
+
+    def _load_asset(self, path: Path) -> np.ndarray:
+        if sf is not None:
+            data, sr = sf.read(str(path), dtype="float32", always_2d=True)
+            audio = np.asarray(data, dtype=np.float32)
+        else:
+            import wave
+
+            with wave.open(str(path), "rb") as f:
+                sr = f.getframerate()
+                channels = f.getnchannels()
+                frames = f.readframes(f.getnframes())
+            pcm = np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32767.0
+            audio = pcm.reshape(-1, channels)
+        if audio.shape[1] == 1:
+            audio = np.repeat(audio, 2, axis=1)
+        elif audio.shape[1] > 2:
+            audio = audio[:, :2]
+        return self._resample(audio, int(sr)) if int(sr) != self.sample_rate else audio
+
+    def _resample(self, audio: np.ndarray, source_rate: int) -> np.ndarray:
+        if source_rate <= 0 or audio.size == 0:
+            return audio
+        old_x = np.linspace(0.0, 1.0, audio.shape[0], endpoint=False)
+        new_len = max(1, int(audio.shape[0] * self.sample_rate / source_rate))
+        new_x = np.linspace(0.0, 1.0, new_len, endpoint=False)
+        left = np.interp(new_x, old_x, audio[:, 0])
+        right = np.interp(new_x, old_x, audio[:, 1])
+        return np.stack([left, right], axis=1).astype(np.float32)
+
+    def _fit_duration(self, clip: np.ndarray, duration: float) -> np.ndarray:
+        target = max(16, int(duration * self.sample_rate))
+        if clip.shape[0] >= target:
+            fitted = clip[:target].copy()
+        else:
+            fitted = np.zeros((target, 2), dtype=np.float32)
+            fitted[: clip.shape[0]] = clip
+        fade = min(target // 8, int(0.04 * self.sample_rate))
+        if fade > 0:
+            fitted[:fade] *= np.linspace(0, 1, fade)[:, None]
+            fitted[-fade:] *= np.linspace(1, 0, fade)[:, None]
+        return fitted
+
+    def _apply_gain_and_pan(self, clip: np.ndarray, volume: float, intensity: float, pan: float) -> np.ndarray:
+        mono = clip.mean(axis=1) * volume * (0.65 + 0.35 * intensity)
+        return self._pan(mono.astype(np.float32), pan)
+
+
+class HostedGenerativeAudioEngine(ProceduralAudioEngine):
+    """Adapter for diffusion/audio-generation backends.
+
+    The endpoint may return raw WAV bytes or JSON {"wav_b64": "..."}. If the
+    backend is unavailable, the event automatically falls back to ProceduralAudioEngine.
+    """
+
+    def __init__(self, endpoint: str, sample_rate: int = 44100, timeout: float = 45.0) -> None:
+        super().__init__(sample_rate=sample_rate)
+        self.endpoint = endpoint
+        self.timeout = timeout
+
+    def synthesize_event(self, event: SoundEvent, min_duration: float = 0.0) -> np.ndarray:
+        try:
+            import base64
+            import requests
+
+            prompt = self._prompt_for_event(event)
+            payload = {
+                "prompt": prompt,
+                "duration": max(min_duration, event.end - event.start, 0.05),
+                "sample_rate": self.sample_rate,
+                "metadata": event.metadata,
+            }
+            response = requests.post(self.endpoint, json=payload, timeout=self.timeout)
+            response.raise_for_status()
+            if response.headers.get("content-type", "").startswith("audio/"):
+                wav_bytes = response.content
+            else:
+                wav_bytes = base64.b64decode(response.json()["wav_b64"])
+            return self._decode_wav_bytes(wav_bytes, event)
+        except Exception:
+            return super().synthesize_event(event, min_duration=min_duration)
+
+    def _prompt_for_event(self, event: SoundEvent) -> str:
+        return (
+            f"{event.style.value} Foley sound for {event.object_label} {event.sound_type}, "
+            f"intensity {event.intensity:.2f}, clean sync point, no music, no speech"
+        )
+
+    def _decode_wav_bytes(self, wav_bytes: bytes, event: SoundEvent) -> np.ndarray:
+        if sf is not None:
+            data, sr = sf.read(io.BytesIO(wav_bytes), dtype="float32", always_2d=True)
+            audio = np.asarray(data, dtype=np.float32)
+            if audio.shape[1] == 1:
+                audio = np.repeat(audio, 2, axis=1)
+            elif audio.shape[1] > 2:
+                audio = audio[:, :2]
+            audio = FoleyAssetEngine(".", self.sample_rate)._resample(audio, int(sr)) if int(sr) != self.sample_rate else audio
+            return self._limiter(audio * event.volume)
+        return super().synthesize_event(event)
+
+
+def build_audio_engine_from_env(sample_rate: int = 44100) -> AudioRenderBackend:
+    backend = os.getenv("SONICFRAME_AUDIO_BACKEND", "procedural").strip().lower()
+    if backend in {"foley", "assets", "asset"} and os.getenv("SONICFRAME_FOLEY_DIR"):
+        return FoleyAssetEngine(os.environ["SONICFRAME_FOLEY_DIR"], sample_rate=sample_rate)
+    if backend in {"hosted", "generative", "diffusion"} and os.getenv("SONICFRAME_AUDIO_ENDPOINT"):
+        return HostedGenerativeAudioEngine(os.environ["SONICFRAME_AUDIO_ENDPOINT"], sample_rate=sample_rate)
+    return ProceduralAudioEngine(sample_rate=sample_rate)
