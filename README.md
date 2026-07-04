@@ -2,7 +2,7 @@
 
 **Human-in-the-loop Explainable Video-to-Audio Sound Design System**
 
-영상에서 장면, 움직임, 접촉 이벤트를 추출하고 설명 가능한 `SoundTimeline`을 생성한 뒤, 사용자의 편집 로그와 자연어 피드백을 선호 프로필로 변환해 다음 사운드 계획에 반영하는 해커톤 제출용 코드베이스입니다.
+영상에서 장면, 움직임, 접촉 이벤트를 추출하고 설명 가능한 `SoundTimeline`을 생성한 뒤, 사용자의 편집 로그와 자연어 피드백을 선호 프로필로 변환해 다음 사운드 계획에 반영하는 코드베이스입니다.
 
 ## 핵심 기능
 
@@ -86,12 +86,6 @@ sonicframe_hitl/
   workspace/             # uploads, exports, project JSON
 ```
 
-## 해커톤 발표 포인트
-
-1. **생성 결과 중심이 아니라 편집 과정 중심**입니다. 사용자의 수정 행동이 다음 생성 전략에 반영됩니다.
-2. **설명 가능한 타임라인**입니다. 각 사운드는 시각 이벤트 근거, 피드백 근거, 계획 근거를 가집니다.
-3. **실행 가능한 end-to-end 시스템**입니다. 영상 업로드 → 분석 → 타임라인 → 오디오 렌더링 → 피드백 → 재계획 → export가 모두 포함되어 있습니다.
-4. **확장 가능한 구조**입니다. 현재는 빠른 procedural engine과 OpenCV 기반 분석을 사용하지만, VLM/YOLO/SAM/AudioLDM/Foley library로 모듈 교체가 쉽습니다.
 
 ## 데이터 모델 요약
 
@@ -103,11 +97,6 @@ sonicframe_hitl/
 - `UserPreferenceProfile`: 이벤트별 강도, 객체별 preference, density, style preference
 - `ProjectState`: 하나의 제출 단위 전체 상태
 
-## 테스트
-
-```bash
-pytest -q
-```
 
 ## 구현 한계와 교체 지점
 
