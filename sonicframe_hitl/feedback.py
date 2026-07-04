@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import math
 import re
 from datetime import datetime, timezone
 from typing import Iterable
 
-from .models import FeedbackLog, SoundTimeline, UserPreferenceProfile
+from .models import CandidateSound, FeedbackLog, SoundEvent, SoundTimeline, UserPreferenceProfile
 
 
 class FeedbackInterpreter:
-    """Turns edit logs and natural-language comments into reusable sound-design preferences."""
+    """Turns edit logs and natural-language comments into reusable sound-design preferences.
+
+    The original rule layer is retained, but candidate choices and negative edits now
+    also update a small contextual preference model. It behaves like a lightweight
+    contextual bandit: for each sound/object/style bucket it stores reward statistics
+    for candidate variants and uses them to rank future candidates.
+    """
 
     quiet_patterns = [r"조용", r"작게", r"줄여", r"과하", r"loud", r"quieter", r"too much", r"reduce"]
     heavy_patterns = [r"무겁", r"강하게", r"더 세", r"heavy", r"stronger", r"punchier"]
@@ -31,6 +38,7 @@ class FeedbackInterpreter:
                 if event_type:
                     profile.event_intensity[event_type] = self._mul(profile.event_intensity.get(event_type, 1.0), 0.8)
                 profile.density = max(0.25, profile.density * 0.92)
+                self._record_event_reward(profile, target, variant="current", reward=0.0)
                 profile.text_rules.append(f"삭제 로그: {event_type or 'unknown'} 이벤트는 더 신중하게 생성")
 
             elif log.action == "adjust_volume":
@@ -42,6 +50,8 @@ class FeedbackInterpreter:
                 if object_label:
                     obj = profile.object_profiles.setdefault(object_label, {})
                     obj["intensity"] = self._mul(float(obj.get("intensity", 1.0)), ratio)
+                reward = 0.35 if ratio < 0.85 else 0.75 if ratio > 1.1 else 0.55
+                self._record_event_reward(profile, target, variant="current", reward=reward)
                 profile.text_rules.append(f"볼륨 조정: {event_type or object_label} × {ratio:.2f}")
 
             elif log.action == "adjust_time":
@@ -51,11 +61,14 @@ class FeedbackInterpreter:
                     key = event_type or "global"
                     profile.object_profiles.setdefault(object_label or key, {})["prefer_short"] = True
                     profile.text_rules.append(f"타이밍 조정: {key} 소리는 더 짧게 선호")
+                self._record_event_reward(profile, target, variant="current", reward=0.6)
 
             elif log.action == "change_style":
                 style = log.after.get("style")
                 if isinstance(style, str):
                     profile.default_style = style  # type: ignore[assignment]
+                    if target:
+                        self._record_event_reward(profile, target, variant=style, reward=0.8)
                     profile.text_rules.append(f"스타일 변경: 기본 스타일을 {style} 쪽으로 보정")
 
             elif log.action == "choose_candidate":
@@ -63,6 +76,9 @@ class FeedbackInterpreter:
                 profile.preferred_variants[variant] = profile.preferred_variants.get(variant, 0) + 1
                 if "style" in log.after:
                     profile.default_style = str(log.after["style"])  # type: ignore[assignment]
+                self._record_event_reward(profile, target, variant=variant, reward=1.0)
+                if "style" in log.after:
+                    self._record_event_reward(profile, target, variant=str(log.after["style"]), reward=0.85)
                 profile.text_rules.append(f"후보 선택: {variant} 선호도 증가")
 
             elif log.action in {"text_feedback", "mute_scene"}:
@@ -71,6 +87,27 @@ class FeedbackInterpreter:
         profile.updated_at = datetime.now(timezone.utc)
         profile.text_rules = profile.text_rules[-50:]
         return profile
+
+    def score_candidate(self, profile: UserPreferenceProfile, sound_event: SoundEvent, candidate: CandidateSound) -> float:
+        """Preference score for ranking candidate previews.
+
+        Score combines global variant counts and contextual reward stats. A small
+        exploration bonus keeps unseen variants visible, which is useful when logs are sparse.
+        """
+
+        context = self.context_key(sound_event.sound_type, sound_event.object_label, sound_event.style.value)
+        variants = [candidate.variant_name, candidate.style.value, "current"]
+        contextual_scores = [self._variant_score(profile, context, variant) for variant in variants]
+        contextual = max(contextual_scores) if contextual_scores else 0.0
+        chosen_count = profile.preferred_variants.get(candidate.variant_name, 0) + profile.preferred_variants.get(candidate.style.value, 0)
+        global_bonus = min(0.35, math.log1p(chosen_count) * 0.08)
+        style_alignment = 0.08 if candidate.style == profile.default_style else 0.0
+        score = 0.5 + contextual + global_bonus + style_alignment
+        return max(0.0, min(1.5, score))
+
+    def context_key(self, sound_type: str, object_label: str, style: str = "*") -> str:
+        coarse_object = object_label.split("_")[0] if object_label else "unknown"
+        return f"{sound_type or 'unknown'}|{coarse_object}|{style or '*'}"
 
     def _apply_text_feedback(self, profile: UserPreferenceProfile, text: str, event_type: str = "", object_label: str = "") -> None:
         normalized = text.strip().lower()
@@ -110,10 +147,11 @@ class FeedbackInterpreter:
         event_rules = ", ".join(f"{k}×{v:.2f}" for k, v in sorted(profile.event_intensity.items())) or "이벤트별 보정 없음"
         avoided = ", ".join(profile.avoided_event_types) or "없음"
         variants = ", ".join(f"{k}:{v}" for k, v in sorted(profile.preferred_variants.items())) or "아직 없음"
+        learned = sum(len(v) for v in profile.preference_stats.values())
         return (
             f"밀도 {profile.density:.2f}, 전체 강도 {profile.global_intensity:.2f}, "
             f"기본 스타일 {profile.default_style}, 이벤트 보정 [{event_rules}], "
-            f"회피 이벤트 [{avoided}], 후보 선호 [{variants}]"
+            f"회피 이벤트 [{avoided}], 후보 선호 [{variants}], 학습 버킷 {learned}개"
         )
 
     def _matches(self, text: str, patterns: list[str]) -> bool:
@@ -127,3 +165,38 @@ class FeedbackInterpreter:
             return float(payload["end"]) - float(payload["start"])
         except Exception:
             return None
+
+    def _record_event_reward(
+        self,
+        profile: UserPreferenceProfile,
+        event: SoundEvent | None,
+        variant: str,
+        reward: float,
+    ) -> None:
+        if event is None:
+            return
+        for context in {
+            self.context_key(event.sound_type, event.object_label, event.style.value),
+            self.context_key(event.sound_type, event.object_label, "*"),
+            self.context_key(event.sound_type, "*", "*"),
+        }:
+            self._record_reward(profile, context, variant, reward)
+
+    def _record_reward(self, profile: UserPreferenceProfile, context: str, variant: str, reward: float) -> None:
+        bucket = profile.preference_stats.setdefault(context, {})
+        stats = bucket.setdefault(variant, {"trials": 0.0, "reward_sum": 0.0, "ewma": 0.5})
+        stats["trials"] = float(stats.get("trials", 0.0)) + 1.0
+        stats["reward_sum"] = float(stats.get("reward_sum", 0.0)) + max(0.0, min(1.0, reward))
+        old = float(stats.get("ewma", 0.5))
+        stats["ewma"] = 0.75 * old + 0.25 * max(0.0, min(1.0, reward))
+
+    def _variant_score(self, profile: UserPreferenceProfile, context: str, variant: str) -> float:
+        stats = profile.preference_stats.get(context, {}).get(variant)
+        if not stats:
+            # exploration bonus for variants with no history in this context
+            return 0.08
+        trials = max(1.0, float(stats.get("trials", 1.0)))
+        mean_reward = float(stats.get("reward_sum", 0.0)) / trials
+        ewma = float(stats.get("ewma", mean_reward))
+        exploration = 0.12 / math.sqrt(trials)
+        return 0.55 * mean_reward + 0.45 * ewma + exploration - 0.5
