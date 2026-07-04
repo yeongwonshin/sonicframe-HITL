@@ -59,18 +59,21 @@ class SoundPlanner:
             volume, intensity = self._variant_gain(sound_event.volume, sound_event.intensity, style)
             if preferred_bonus and profile.preferred_variants.get(style.value, 0) == preferred_bonus:
                 volume = min(1.5, volume * 1.05)
-            candidates.append(
-                CandidateSound(
-                    event_id=sound_event.id,
-                    variant_name=f"{style.value}_{idx + 1}",
-                    label=f"{sound_event.object_label} {sound_event.sound_type} / {style.value}",
-                    volume=volume,
-                    intensity=intensity,
-                    style=style,
-                    rationale=self._candidate_rationale(sound_event, style, profile),
-                )
+            candidate = CandidateSound(
+                event_id=sound_event.id,
+                variant_name=f"{style.value}_{idx + 1}",
+                label=f"{sound_event.object_label} {sound_event.sound_type} / {style.value}",
+                volume=volume,
+                intensity=intensity,
+                style=style,
+                rationale=self._candidate_rationale(sound_event, style, profile),
             )
-        return candidates
+            candidate.preference_score = self.feedback.score_candidate(profile, sound_event, candidate)
+            candidate.metadata["preference_context"] = self.feedback.context_key(
+                sound_event.sound_type, sound_event.object_label, sound_event.style.value
+            )
+            candidates.append(candidate)
+        return sorted(candidates, key=lambda c: c.preference_score, reverse=True)
 
     def replan_with_feedback(
         self,
@@ -142,6 +145,9 @@ class SoundPlanner:
                 "contact_score": evidence.contact_score,
                 "bbox": evidence.bbox,
                 "scene_id": evidence.scene_id,
+                "visual_source": evidence.source,
+                "mask_area": evidence.mask_area,
+                "visual_attributes": evidence.attributes,
             },
         )
 
@@ -193,10 +199,14 @@ class SoundPlanner:
         ev = ve.evidence
         parts = [
             f"{ve.start:.2f}s–{ve.end:.2f}s 구간에서 '{ev.object_label}'의 {ev.event_type} 이벤트를 감지했습니다.",
-            f"motion={ev.motion_score:.2f}, contact={ev.contact_score:.2f}, confidence={ev.confidence:.2f}.",
+            f"source={ev.source}, motion={ev.motion_score:.2f}, contact={ev.contact_score:.2f}, confidence={ev.confidence:.2f}.",
         ]
         if ev.bbox:
             parts.append(f"움직임 위치 bbox={ev.bbox}를 패닝 근거로 사용했습니다.")
+        if ev.mask_area is not None:
+            parts.append(f"segmentation mask area={ev.mask_area:.1f}를 물체 크기 근거로 기록했습니다.")
+        if ev.attributes.get("description"):
+            parts.append(f"VLM 설명: {ev.attributes['description']}")
         return " ".join(parts)
 
     def _feedback_reason(self, profile: UserPreferenceProfile, sound_type: str, object_label: str) -> str | None:
@@ -226,7 +236,7 @@ class SoundPlanner:
         return (
             f"총 {len(timeline.events)}개의 사운드 이벤트를 생성했습니다. "
             f"평균 강도는 {avg_intensity:.2f}, 사용자 프로필은 밀도 {profile.density:.2f}/전체 강도 {profile.global_intensity:.2f}입니다. "
-            f"{len(scenes)}개 장면의 motion/contact 근거와 편집 선호를 함께 사용했습니다."
+            f"{len(scenes)}개 장면의 motion/contact/vision-cascade 근거와 편집 선호를 함께 사용했습니다."
         )
 
     def _scene_for(self, ve: VisualEvent, scenes: list[SceneSegment]) -> SceneSegment | None:
