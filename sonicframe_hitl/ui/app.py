@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sonicframe_hitl.audio import ProceduralAudioEngine
+from sonicframe_hitl.audio import build_audio_engine_from_env
 from sonicframe_hitl.config import ensure_workspace, sample_fps
 from sonicframe_hitl.exporters import export_project_bundle, timeline_to_rows
 from sonicframe_hitl.feedback import FeedbackInterpreter
@@ -25,12 +25,12 @@ st.set_page_config(page_title="SonicFrame HITL", layout="wide")
 store = ProjectStore(ensure_workspace())
 planner = SoundPlanner()
 interpreter = FeedbackInterpreter()
-engine = ProceduralAudioEngine()
+engine = build_audio_engine_from_env()
 
 
 def main() -> None:
     st.title("SonicFrame HITL: Explainable Video-to-Audio Sound Design")
-    st.caption("영상 이벤트 근거 + 사용자 편집 피드백 + 후보 비교를 결합한 해커톤 제출용 데모")
+    st.caption("YOLO + GroundingDINO + SAM + VLM, Foley/generative audio backend가 모두 설정된 운영용 HITL 워크벤치")
 
     with st.sidebar:
         st.header("Project")
@@ -76,19 +76,20 @@ def create_project(uploaded, style: SoundStyle) -> str:
 
 
 def render_intro() -> None:
-    st.info("왼쪽에서 영상을 업로드하면 장면/이벤트 추출, 설명 가능한 SoundTimeline 생성, WAV 렌더링까지 한 번에 실행됩니다.")
+    st.info("왼쪽에서 영상을 업로드하면 필수 vision cascade로 이벤트를 추출하고, 설정된 Foley/generative backend로 WAV를 렌더링합니다.")
     col1, col2, col3 = st.columns(3)
     col1.metric("HITL", "Edit logs → preferences")
     col2.metric("Explainable", "Visual evidence + feedback reason")
-    col3.metric("V2A", "Timeline → procedural WAV")
+    col3.metric("V2A", "Timeline → Foley/generative WAV")
     st.markdown(
         """
-        ### Demo flow
-        1. 영상 업로드 후 자동 분석
-        2. 각 사운드 이벤트의 생성 이유 확인
-        3. 자연어 피드백 또는 볼륨/삭제 로그 입력
-        4. 재계획된 타임라인과 후보 사운드 비교
-        5. WAV/JSON/CSV 제출 번들 export
+        ### Production flow
+        1. 영상 업로드 후 YOLO + GroundingDINO 검출
+        2. SAM segmentation으로 bbox/mask evidence 보강
+        3. VLM이 sound-worthy action/context를 확정
+        4. 자연어 피드백 또는 볼륨/삭제 로그로 재계획
+        5. Foley asset 또는 generative audio backend로 WAV/후보 preview 렌더링
+        6. JSON/CSV/profile 제출 번들 export
         """
     )
 

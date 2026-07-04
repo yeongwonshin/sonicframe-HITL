@@ -20,8 +20,8 @@ from sonicframe_hitl.video_analysis import VideoAnalyzer
 
 app = FastAPI(
     title="SonicFrame HITL",
-    description="Human-in-the-loop Explainable Video-to-Audio Sound Design System",
-    version="0.1.0",
+    description="Production Human-in-the-loop Video-to-Audio Sound Design System with mandatory vision/audio backends",
+    version="0.2.0",
 )
 app.add_middleware(
     CORSMiddleware,
@@ -123,7 +123,7 @@ def regenerate_candidates(project_id: str) -> ProjectState:
     if not project.timeline:
         raise HTTPException(status_code=404, detail="Timeline not generated")
     project.candidates = [c for event in project.timeline.events[:12] for c in planner.make_candidates(event, project.profile)]
-    # Create previews for the first candidates so the UI can compare quickly.
+    # Create production backend previews for the first candidates.
     by_event = {e.id: e for e in project.timeline.events}
     for cand in project.candidates[:12]:
         event = by_event.get(cand.event_id)

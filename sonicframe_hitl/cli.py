@@ -21,7 +21,7 @@ console = Console()
 
 @app.command()
 def analyze(video_path: Path, style: SoundStyle = SoundStyle.balanced, render: bool = True) -> None:
-    """Analyze a video, plan an explainable sound timeline, and optionally render a WAV."""
+    """Analyze with mandatory vision backends, plan a timeline, and render with configured production audio."""
     store = ProjectStore(ensure_workspace())
     analyzer = VideoAnalyzer(sample_fps=sample_fps())
     planner = SoundPlanner()
