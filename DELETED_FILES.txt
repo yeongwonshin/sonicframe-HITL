@@ -1,3 +1,0 @@
-run_demo.sh
-scripts/create_demo_video.py
-examples/demo_motion.mp4
