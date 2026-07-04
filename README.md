@@ -6,13 +6,13 @@
 
 ## 핵심 기능
 
-- 영상 분석: 장면 분할, motion/contact score, coarse bbox 기반 시각 이벤트 추출
+- 영상 분석: 장면 분할, motion/contact score, coarse bbox 기반 시각 이벤트 추출 + 선택적 YOLO/GroundingDINO/SAM/VLM cascade
 - 설명 가능한 사운드 타임라인: 각 사운드가 왜, 어디에, 어떤 강도로 들어갔는지 설명
 - Human-in-the-loop: 삭제, 볼륨 조정, 타이밍 조정, 스타일 변경, 후보 선택, 자연어 피드백 기록
-- 선호 프로필 학습: 이벤트별 강도, 객체별 소리 프로필, 밀도, 스타일 선호 반영
+- 선호 프로필 학습: 이벤트별 강도, 객체별 소리 프로필, 밀도, 스타일 선호 + contextual preference ranking 반영
 - 재계획 에이전트: `VideoAsset + SceneSegment + VisualEvent + UserPreferenceProfile` 기반 SoundTimeline 재생성
 - 후보 비교 UI: realistic / cinematic / restrained 후보 미리듣기 및 선택 로그 저장
-- 오디오 렌더링: 외부 API 없이 procedural WAV mix 생성
+- 오디오 렌더링: procedural fallback, Foley asset retrieval, hosted generative audio backend 교체 지원
 - 제출 번들: 프로젝트 JSON, Timeline CSV/JSON, Profile JSON, submission note export
 
 ## 빠른 실행
@@ -72,10 +72,11 @@ sonicframe_hitl/
     api/main.py          # FastAPI endpoints
     ui/app.py            # Streamlit browser UI
     models.py            # VideoAsset, VisualEvent, SoundTimeline, FeedbackLog
-    video_analysis.py    # scene/event extraction
+    video_analysis.py    # scene/event extraction + optional vision cascade refinement
+    vision_backends.py   # YOLO/GroundingDINO/SAM/VLM adapter interfaces
     planner.py           # explainable sound timeline planner
-    feedback.py          # edit logs -> user preference profile
-    audio.py             # procedural sound synthesis + WAV render
+    feedback.py          # edit logs -> rules + contextual preference stats
+    audio.py             # procedural/Foley/hosted audio rendering backends
     exporters.py         # JSON/CSV/submission bundle
     storage.py           # JSON-backed local project store
     cli.py               # command line interface
@@ -98,8 +99,53 @@ sonicframe_hitl/
 - `ProjectState`: 하나의 제출 단위 전체 상태
 
 
-## 구현 한계와 교체 지점
+## 개선된 확장 구조
 
-- 객체 인식은 lightweight motion heuristic입니다. 실제 제출 환경에서 YOLO, GroundingDINO, SAM, VLM을 연결하면 객체 라벨 품질을 높일 수 있습니다.
-- 오디오는 procedural preview입니다. 상용 수준 Foley는 diffusion/audio generation backend로 `ProceduralAudioEngine`만 교체하면 됩니다.
-- 피드백 학습은 규칙 기반입니다. 충분한 로그가 쌓이면 pairwise preference model 또는 contextual bandit으로 확장할 수 있습니다.
+### 1) Vision cascade
+
+기본 실행은 여전히 lightweight motion heuristic으로 동작합니다. 다만 `sonicframe_hitl/vision_backends.py`가 추가되어 실제 제출 환경에서는 다음처럼 cascade를 연결할 수 있습니다.
+
+```text
+motion/contact keyframe 후보
+  ↓
+YOLO 또는 GroundingDINO detector
+  ↓
+SAM segmenter
+  ↓
+VLM action/context refiner
+  ↓
+VisualEvent.evidence(object_label, event_type, bbox, mask_area, source, attributes)
+```
+
+환경 변수 예시:
+
+```bash
+export SONICFRAME_VISION_BACKEND=groundingdino
+export SONICFRAME_DETECTOR_ENDPOINT=http://localhost:9001/detect
+export SONICFRAME_SAM_ENDPOINT=http://localhost:9002/segment
+export SONICFRAME_VLM_ENDPOINT=http://localhost:9003/describe
+```
+
+로컬 YOLO를 쓰는 환경에서는 `SONICFRAME_VISION_BACKEND=yolo`, `SONICFRAME_YOLO_WEIGHTS=yolov8n.pt`를 설정하면 됩니다. 외부 모델이 없어도 fallback으로 기존 분석이 유지됩니다.
+
+### 2) Audio backend
+
+`audio.py`는 이제 세 가지 backend를 같은 인터페이스로 제공합니다.
+
+- `ProceduralAudioEngine`: 외부 의존성 없는 기본 fallback
+- `FoleyAssetEngine`: `SONICFRAME_FOLEY_DIR` 아래의 WAV Foley asset을 검색해 이벤트에 매칭
+- `HostedGenerativeAudioEngine`: AudioLDM/Stable Audio/자체 diffusion backend 같은 HTTP 생성 서버와 연결
+
+환경 변수 예시:
+
+```bash
+export SONICFRAME_AUDIO_BACKEND=foley
+export SONICFRAME_FOLEY_DIR=assets/foley
+# 또는
+export SONICFRAME_AUDIO_BACKEND=generative
+export SONICFRAME_AUDIO_ENDPOINT=http://localhost:9010/generate
+```
+
+### 3) Feedback learning
+
+`FeedbackInterpreter`는 기존 규칙 기반 업데이트에 더해 `UserPreferenceProfile.preference_stats`에 후보 선택/삭제/볼륨 조정 보상을 누적합니다. `SoundPlanner.make_candidates()`는 이 contextual preference score로 후보를 정렬합니다. 로그가 적을 때도 exploration bonus를 둬서 특정 후보로 너무 빨리 고정되지 않게 했습니다.
