@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 from .models import SceneSegment, VideoAsset, VisualEvidence, VisualEvent
+from .vision_backends import VisionCascade, build_vision_cascade_from_env
 
 try:  # OpenCV is optional at import time to keep CLI metadata commands usable.
     import cv2  # type: ignore
@@ -15,16 +17,25 @@ except Exception:  # pragma: no cover
 
 class VideoAnalyzer:
     """
-    Lightweight visual-event extractor.
+    Hybrid visual-event extractor.
 
-    It does not try to replace a large vision model. For hackathon execution it provides fast,
-    deterministic signals: scene cuts, motion energy, coarse object boxes, contact-like peaks.
-    The planner can be swapped later with GroundingDINO, SAM, YOLO, or a hosted VLM.
+    The default path is still a deterministic motion/contact heuristic so the demo
+    works offline. When a VisionCascade is configured, the analyzer upgrades those
+    coarse events with detector labels, optional SAM mask area and VLM action/context
+    fields without changing the downstream SoundPlanner contract.
     """
 
-    def __init__(self, sample_fps: int = 6, scene_threshold: float = 0.32) -> None:
+    def __init__(
+        self,
+        sample_fps: int = 6,
+        scene_threshold: float = 0.32,
+        vision_cascade: VisionCascade | None = None,
+        refine_top_k: int = 16,
+    ) -> None:
         self.sample_fps = max(1, sample_fps)
         self.scene_threshold = scene_threshold
+        self.vision_cascade = vision_cascade if vision_cascade is not None else build_vision_cascade_from_env()
+        self.refine_top_k = max(0, refine_top_k)
 
     def analyze(self, video_path: str | Path) -> tuple[VideoAsset, list[SceneSegment], list[VisualEvent]]:
         path = Path(video_path)
@@ -43,7 +54,7 @@ class VideoAnalyzer:
         step = max(1, int(round(fps / self.sample_fps)))
 
         video = VideoAsset(filename=path.name, path=str(path), duration=duration, fps=fps, width=width, height=height)
-        samples: list[dict[str, float | np.ndarray | None]] = []
+        samples: list[dict[str, Any]] = []
         prev_gray: np.ndarray | None = None
         prev_hist: np.ndarray | None = None
         idx = 0
@@ -61,7 +72,16 @@ class VideoAnalyzer:
             hist = cv2.normalize(hist, hist).flatten()
             scene_diff = float(cv2.compareHist(prev_hist, hist, cv2.HISTCMP_BHATTACHARYYA)) if prev_hist is not None else 0.0
             motion = float(np.mean(cv2.absdiff(prev_gray, small)) / 255.0) if prev_gray is not None else 0.0
-            samples.append({"time": t, "gray": small, "hist": hist, "scene_diff": scene_diff, "motion": motion})
+            samples.append(
+                {
+                    "time": t,
+                    "gray": small,
+                    "hist": hist,
+                    "scene_diff": scene_diff,
+                    "motion": motion,
+                    "frame": frame.copy() if self.vision_cascade is not None else None,
+                }
+            )
             prev_gray = small
             prev_hist = hist
             idx += 1
@@ -72,6 +92,7 @@ class VideoAnalyzer:
 
         scenes = self._build_scenes(samples, duration)
         events = self._build_events(samples, scenes, width, height)
+        events = self._refine_with_vision(events, samples) if self.vision_cascade else events
         return video, scenes, events
 
     def _fallback(self, path: Path) -> tuple[VideoAsset, list[SceneSegment], list[VisualEvent]]:
@@ -86,24 +107,40 @@ class VideoAnalyzer:
                 start=1.0,
                 end=1.35,
                 evidence=VisualEvidence(
-                    object_label="person", event_type="footstep", confidence=0.62, motion_score=0.42,
-                    scene_id=scenes[0].id, notes=["fallback synthetic walking cue"]
+                    object_label="person",
+                    event_type="footstep",
+                    confidence=0.62,
+                    motion_score=0.42,
+                    scene_id=scenes[0].id,
+                    source="fallback",
+                    notes=["fallback synthetic walking cue"],
                 ),
             ),
             VisualEvent(
                 start=3.1,
                 end=3.55,
                 evidence=VisualEvidence(
-                    object_label="door", event_type="contact", confidence=0.7, motion_score=0.78, contact_score=0.86,
-                    scene_id=scenes[1].id, notes=["fallback synthetic contact cue"]
+                    object_label="door",
+                    event_type="contact",
+                    confidence=0.7,
+                    motion_score=0.78,
+                    contact_score=0.86,
+                    scene_id=scenes[1].id,
+                    source="fallback",
+                    notes=["fallback synthetic contact cue"],
                 ),
             ),
             VisualEvent(
                 start=6.0,
                 end=6.8,
                 evidence=VisualEvidence(
-                    object_label="background", event_type="motion", confidence=0.55, motion_score=0.45,
-                    scene_id=scenes[2].id, notes=["fallback synthetic ambient cue"]
+                    object_label="background",
+                    event_type="motion",
+                    confidence=0.55,
+                    motion_score=0.45,
+                    scene_id=scenes[2].id,
+                    source="fallback",
+                    notes=["fallback synthetic ambient cue"],
                 ),
             ),
         ]
@@ -125,7 +162,15 @@ class VideoAnalyzer:
             motion_mean = float(np.mean([float(s["motion"]) for s in scene_samples])) if scene_samples else 0.0
             diff_mean = float(np.mean([float(s["scene_diff"]) for s in scene_samples])) if scene_samples else 0.0
             hint = "quiet" if motion_mean < 0.08 else "impact" if motion_mean > 0.25 else "neutral"
-            scenes.append(SceneSegment(start=start, end=max(end, start + 0.1), motion_mean=motion_mean, visual_energy=motion_mean + diff_mean, style_hint=hint))
+            scenes.append(
+                SceneSegment(
+                    start=start,
+                    end=max(end, start + 0.1),
+                    motion_mean=motion_mean,
+                    visual_energy=motion_mean + diff_mean,
+                    style_hint=hint,
+                )
+            )
         return scenes
 
     def _build_events(
@@ -151,9 +196,9 @@ class VideoAnalyzer:
             end = float(samples[end_idx]["time"]) + 0.18
             scene = self._scene_for(start, scenes)
             contact_score = self._contact_score(samples, start_idx, end_idx)
-            object_label = self._object_guess(peak, contact_score, scene.style_hint)
-            event_type = self._event_type(peak, contact_score, scene.style_hint)
             bbox = self._motion_bbox(samples, start_idx, width, height)
+            object_label = self._object_guess(peak, contact_score, scene.style_hint, bbox, width, height)
+            event_type = self._event_type(peak, contact_score, scene.style_hint, bbox, width, height)
             confidence = min(0.95, 0.58 + peak * 5.0 + contact_score * 0.25)
             events.append(
                 VisualEvent(
@@ -167,6 +212,8 @@ class VideoAnalyzer:
                         motion_score=peak,
                         contact_score=contact_score,
                         scene_id=scene.id,
+                        source="motion_heuristic",
+                        attributes={"sample_start_idx": start_idx, "sample_end_idx": end_idx},
                         notes=[
                             f"motion peak={peak:.3f}",
                             f"contact score={contact_score:.3f}",
@@ -190,14 +237,34 @@ class VideoAnalyzer:
             return 0.0
         return max(0.0, min(1.0, (max(local) - np.median(local)) * 18.0))
 
-    def _event_type(self, peak: float, contact: float, style_hint: str) -> str:
+    def _event_type(
+        self,
+        peak: float,
+        contact: float,
+        style_hint: str,
+        bbox: tuple[int, int, int, int] | None,
+        width: int,
+        height: int,
+    ) -> str:
         if contact > 0.2 or peak > 0.28 or style_hint == "impact":
             return "contact"
+        if bbox and self._is_bottom_body_motion(bbox, width, height):
+            return "footstep"
         if 0.08 < peak < 0.22:
             return "footstep"
         return "motion"
 
-    def _object_guess(self, peak: float, contact: float, style_hint: str) -> str:
+    def _object_guess(
+        self,
+        peak: float,
+        contact: float,
+        style_hint: str,
+        bbox: tuple[int, int, int, int] | None,
+        width: int,
+        height: int,
+    ) -> str:
+        if bbox and self._is_bottom_body_motion(bbox, width, height):
+            return "person"
         if contact > 0.2 or style_hint == "impact":
             return "door_or_prop"
         if 0.08 < peak < 0.22:
@@ -205,6 +272,14 @@ class VideoAnalyzer:
         if math.isclose(peak, 0.0):
             return "background"
         return "moving_object"
+
+    def _is_bottom_body_motion(self, bbox: tuple[int, int, int, int], width: int, height: int) -> bool:
+        if width <= 0 or height <= 0:
+            return False
+        _x, y, w, h = bbox
+        area_ratio = (w * h) / max(1, width * height)
+        center_y = (y + h / 2) / height
+        return center_y > 0.55 and 0.001 < area_ratio < 0.12
 
     def _motion_bbox(self, samples: list[dict[str, object]], idx: int, width: int, height: int) -> tuple[int, int, int, int] | None:
         if cv2 is None or idx <= 0:
@@ -224,6 +299,28 @@ class VideoAnalyzer:
         scale_y = height / max(1, gray.shape[0])
         return (int(x * scale_x), int(y * scale_y), int(w * scale_x), int(h * scale_y))
 
+    def _refine_with_vision(self, events: list[VisualEvent], samples: list[dict[str, Any]]) -> list[VisualEvent]:
+        if not self.vision_cascade or not events:
+            return events
+        ranked = sorted(events, key=lambda e: e.evidence.confidence, reverse=True)[: self.refine_top_k]
+        refine_ids = {event.id for event in ranked}
+        refined: list[VisualEvent] = []
+        for event in events:
+            if event.id not in refine_ids:
+                refined.append(event)
+                continue
+            sample = min(samples, key=lambda s: abs(float(s["time"]) - event.start))
+            frame = sample.get("frame")
+            if frame is None:
+                refined.append(event)
+                continue
+            try:
+                refined.append(self.vision_cascade.refine_event(frame, event))
+            except Exception as exc:  # external model failures should not break local demo
+                event.evidence.notes.append(f"vision cascade skipped: {exc}")
+                refined.append(event)
+        return refined
+
     def _merge_close_events(self, events: list[VisualEvent]) -> list[VisualEvent]:
         if not events:
             return []
@@ -238,6 +335,7 @@ class VideoAnalyzer:
                     prev.evidence.motion_score = ev.evidence.motion_score
                     prev.evidence.bbox = ev.evidence.bbox
                 prev.evidence.contact_score = max(prev.evidence.contact_score, ev.evidence.contact_score)
+                prev.evidence.confidence = max(prev.evidence.confidence, ev.evidence.confidence)
                 prev.evidence.notes.extend(ev.evidence.notes)
             else:
                 merged.append(ev)
