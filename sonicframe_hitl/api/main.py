@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from sonicframe_hitl.audio import ProceduralAudioEngine
+from sonicframe_hitl.audio import build_audio_engine_from_env
 from sonicframe_hitl.config import ensure_workspace, sample_fps
 from sonicframe_hitl.exporters import export_project_bundle
 from sonicframe_hitl.feedback import FeedbackInterpreter
@@ -34,7 +34,7 @@ app.add_middleware(
 store = ProjectStore(ensure_workspace())
 planner = SoundPlanner()
 interpreter = FeedbackInterpreter()
-engine = ProceduralAudioEngine()
+engine = build_audio_engine_from_env()
 
 
 class FeedbackRequest(BaseModel):
