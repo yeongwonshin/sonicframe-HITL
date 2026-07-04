@@ -9,14 +9,17 @@ VideoAnalyzer
   - metadata
   - scene split by histogram difference
   - motion/contact events by frame difference
+  - optional VisionCascade refinement: YOLO/GroundingDINO → SAM → VLM
   ↓
 SoundPlanner
   - visual event → sound event mapping
   - preference profile scaling
   - explanation generation
   ↓
-ProceduralAudioEngine
-  - footstep/contact/motion/ambient synthesis
+Audio backend
+  - ProceduralAudioEngine fallback
+  - FoleyAssetEngine asset retrieval
+  - HostedGenerativeAudioEngine diffusion/audio-generation adapter
   - stereo pan and limiter
   ↓
 FeedbackInterpreter
@@ -44,7 +47,7 @@ The system stores each user action as a structured `FeedbackLog`.
 - Adjust volume → update event/object multiplier.
 - Adjust time shorter → mark object/sound type as `prefer_short`.
 - Change style → update default style.
-- Choose candidate → increment variant preference.
+- Choose candidate → increment variant preference and record contextual reward stats.
 - Natural language feedback → keyword parser for Korean/English intent.
 
 The result is a `UserPreferenceProfile` that is immediately applied during replanning.
@@ -60,7 +63,7 @@ The project is designed to run on a laptop during a hackathon demo.
 
 ## Extension points
 
-- Replace `VideoAnalyzer` with YOLO/SAM/GroundingDINO or a video-language model.
-- Replace `ProceduralAudioEngine` with AudioLDM, Stable Audio, ElevenLabs SFX, or a Foley retrieval database.
-- Replace `FeedbackInterpreter` with a learned reward model.
+- Configure `VisionCascade` with YOLO/GroundingDINO detector, SAM segmenter and a VLM instead of replacing the whole `VideoAnalyzer`.
+- Configure `build_audio_engine_from_env()` for Foley retrieval or hosted diffusion/audio generation while preserving `ProceduralAudioEngine` as fallback.
+- Replace the lightweight contextual reward stats in `FeedbackInterpreter` with a pairwise preference model/reward model when enough logs are available.
 - Add DAW export such as EDL, AAF, or Reaper project files.
