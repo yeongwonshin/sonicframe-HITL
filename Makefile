@@ -1,8 +1,11 @@
-.PHONY: install test api ui demo clean
+.PHONY: install install-vision test api ui clean
 
 install:
 	pip install -r requirements.txt
 	pip install -e .
+
+install-vision:
+	pip install -e '.[vision]'
 
 test:
 	pytest -q
@@ -12,10 +15,6 @@ api:
 
 ui:
 	streamlit run sonicframe_hitl/ui/app.py
-
-demo:
-	python scripts/create_demo_video.py
-	sonicframe analyze workspace/uploads/demo_motion.mp4 --style balanced
 
 clean:
 	rm -rf .pytest_cache .ruff_cache __pycache__ sonicframe_hitl.egg-info
