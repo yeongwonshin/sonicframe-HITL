@@ -17,8 +17,8 @@ SonicFrame HITL converts visual events into explainable sound events and continu
 ## Technical novelty
 
 - Sound events include visual evidence and feedback rationale.
-- Edit logs are interpreted into reusable preference rules.
-- Candidate comparison produces implicit preference data.
+- Edit logs are interpreted into reusable preference rules and contextual reward statistics.
+- Candidate comparison produces implicit preference data used to rank future candidates.
 - The workflow is end-to-end and usable in a browser.
 
 ## What is included
@@ -26,10 +26,10 @@ SonicFrame HITL converts visual events into explainable sound events and continu
 - FastAPI backend
 - Streamlit browser UI
 - CLI
-- Video analysis module
+- Video analysis module with optional YOLO/GroundingDINO/SAM/VLM cascade adapters
 - Sound timeline planner
-- Feedback interpreter
-- Procedural audio renderer
+- Feedback interpreter with contextual preference ranking
+- Procedural/Foley/hosted generative audio renderer
 - Exporters and tests
 
 ## Demo script
