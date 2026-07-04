@@ -1,33 +1,20 @@
-# Evaluation Plan
+# Evaluation
 
-## Quantitative metrics
+## Metrics
 
-| Metric | Meaning | How to measure |
-|---|---|---|
-| Edit count reduction | Does the system adapt after feedback? | Compare number of edits in first vs. second generation |
-| Timing error | Are sound events aligned to visual events? | Absolute difference between visual event start and sound event start |
-| Preference hit rate | Are selected candidates consistent with prior choices? | Chosen candidate style / top predicted style |
-| Density satisfaction | Does system avoid over-sounding? | Ratio of generated events to visual events after feedback |
-| Render latency | Can demo run interactively? | Time from uploaded video to timeline and WAV |
+| Area | Metric | Notes |
+| --- | --- | --- |
+| Vision | Detector coverage | YOLO and GroundingDINO detections per sampled frame |
+| Vision | Segmentation evidence | SAM mask area/bbox refinement availability |
+| Vision | VLM event precision | Accepted sound-worthy events vs rejected detections |
+| Audio | Foley hit rate | Ratio of events resolved by curated assets |
+| Audio | Generative repair rate | Hybrid events generated because assets were missing |
+| HITL | Preference adaptation | Candidate ranking changes after user choices/deletions/volume edits |
+| Export | Reproducibility | Project JSON includes backend source and evidence metadata |
 
-## Qualitative user study
+## Success criteria
 
-Participants watch the same video twice:
-
-1. Baseline automatic V2A timeline.
-2. HITL timeline after two feedback rounds.
-
-Ask them to rate:
-
-- Sound placement trustworthiness
-- Explanation usefulness
-- Perceived control
-- Final sound-design fit
-
-## Demo success criteria
-
-- Upload any short video and generate a timeline.
-- Show at least one sound event with visual and feedback explanation.
-- Enter feedback such as "충돌음이 과하다" and observe lowered contact intensity.
-- Generate candidates and choose a variant.
-- Export JSON/CSV/profile bundle.
+- Every `VisualEvent.evidence.source` contains YOLO/GroundingDINO, SAM, and VLM provenance.
+- No event is created from a synthetic or motion-only fallback.
+- Rendering uses `foley`, `generative`, or `hybrid`; procedural audio is unavailable.
+- Backend errors are visible and actionable.

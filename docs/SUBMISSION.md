@@ -1,43 +1,27 @@
-# Hackathon Submission Notes
-
-## Project title
-
-사용자 피드백을 반영하는 설명 가능한 인터랙티브 영상-사운드 생성 시스템
-
-English: Human-in-the-loop Explainable Video-to-Audio Sound Design System
-
-## Problem
-
-Most video-to-audio systems focus on generating a single audio result. Real sound design is iterative: designers delete sounds, adjust timing, reduce loud impacts, and compare alternatives. Those edits are valuable preference signals, but typical systems discard them.
-
-## Solution
-
-SonicFrame HITL converts visual events into explainable sound events and continuously updates a user preference profile from edit logs and natural-language feedback. The system replans the sound timeline using both visual evidence and learned user preference.
-
-## Technical novelty
-
-- Sound events include visual evidence and feedback rationale.
-- Edit logs are interpreted into reusable preference rules and contextual reward statistics.
-- Candidate comparison produces implicit preference data used to rank future candidates.
-- The workflow is end-to-end and usable in a browser.
+# Submission Notes
 
 ## What is included
 
-- FastAPI backend
-- Streamlit browser UI
-- CLI
-- Video analysis module with optional YOLO/GroundingDINO/SAM/VLM cascade adapters
-- Sound timeline planner
-- Feedback interpreter with contextual preference ranking
-- Procedural/Foley/hosted generative audio renderer
-- Exporters and tests
+- Mandatory YOLO + GroundingDINO + SAM + VLM visual event cascade
+- Strict Foley / hosted generative / hybrid audio rendering backend
+- Explainable `SoundTimeline` planner
+- Natural-language and edit-log feedback interpreter
+- Candidate generation and contextual preference ranking
+- JSON/CSV/profile/export bundle generation
+- FastAPI, Streamlit, and CLI entry points
 
-## Demo script
+## What is intentionally removed
 
-1. Launch Streamlit.
-2. Upload a short video.
-3. Show generated timeline and explanations.
-4. Type: `이 장면은 더 조용하게, 충돌음은 과하다`.
-5. Show replanned timeline with lower contact intensity.
-6. Generate candidates and choose restrained or cinematic.
-7. Export bundle.
+- Synthetic visual fallback events
+- Motion-heuristic object/event labeling
+- Procedural audio renderer
+- Silent fallback when external backends fail
+
+## Production run checklist
+
+1. Start YOLO, GroundingDINO, SAM, VLM, and audio services.
+2. Export all required environment variables from `.env.example`.
+3. Run `sonicframe analyze path/to/video.mp4 --style balanced`.
+4. Review explanations and feedback logs.
+5. Render previews/mix with Foley or generative backend.
+6. Export the project bundle.

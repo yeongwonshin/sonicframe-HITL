@@ -1,16 +1,18 @@
-# SonicFrame HITL improvement patch
+# Production backend patch
 
-This archive contains only files that were changed or added.
-Unzip it over the original `sonicframe_hitl/` project root to apply the patch.
+This patch removes demo fallback behavior and requires real vision/audio backends.
+Unzip the changed-file archive over the original `sonicframe_hitl/` project root.
+Apply deletions listed in `DELETED_FILES.txt` if your unzip tool does not remove files automatically.
 
 ## Main changes
 
-- Added optional `VisionCascade` adapters for YOLO, GroundingDINO-style hosted detectors, SAM-style segmenters and VLM refinement.
-- Upgraded `VideoAnalyzer` to keep the local motion heuristic fallback while refining top events through the optional cascade.
-- Added `FoleyAssetEngine`, `HostedGenerativeAudioEngine` and `build_audio_engine_from_env()` so procedural audio is no longer the only backend path.
-- Added contextual preference statistics to `UserPreferenceProfile` and ranked candidate sounds using feedback-derived preference scores.
-- Updated README, architecture notes, submission notes, env examples and tests.
+- Replaced optional vision refinement with mandatory YOLO + GroundingDINO + SAM + VLM cascade.
+- Removed synthetic visual fallback and motion-heuristic event labeling from `VideoAnalyzer`.
+- Removed procedural audio backend from runtime selection.
+- Added strict `foley`, `generative`, and `hybrid` audio backends.
+- Updated CLI/API/UI/docs/env examples to require production backend configuration.
+- Updated tests to validate strict backend behavior and Foley rendering.
 
 ## Validation
 
-`pytest -q` passed with 8 tests.
+`pytest -q` passes in the modified project.

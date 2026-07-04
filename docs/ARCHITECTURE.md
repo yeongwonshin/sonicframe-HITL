@@ -1,69 +1,48 @@
 # Architecture
 
+SonicFrame HITL now runs as a production-backend pipeline. It does not create synthetic visual events, does not label events with motion heuristics, and does not render procedural audio.
+
 ## Pipeline
 
 ```text
-Video Upload
+Video upload
   ↓
-VideoAnalyzer
-  - metadata
-  - scene split by histogram difference
-  - motion/contact events by frame difference
-  - optional VisionCascade refinement: YOLO/GroundingDINO → SAM → VLM
+OpenCV frame sampling + scene grouping
   ↓
-SoundPlanner
-  - visual event → sound event mapping
-  - preference profile scaling
-  - explanation generation
+YOLO detector + GroundingDINO detector
   ↓
-Audio backend
-  - ProceduralAudioEngine fallback
-  - FoleyAssetEngine asset retrieval
-  - HostedGenerativeAudioEngine diffusion/audio-generation adapter
-  - stereo pan and limiter
+Detection deduplication
   ↓
-FeedbackInterpreter
-  - edit logs and natural language feedback
-  - profile update
+SAM segmentation refinement
   ↓
-Replanning / Candidate Comparison / Export
+VLM action/context/sound-event decision
+  ↓
+VisualEvent evidence
+  ↓
+SoundPlanner + UserPreferenceProfile
+  ↓
+Foley asset backend or hosted generative audio backend
+  ↓
+WAV mix + JSON/CSV/profile export
 ```
 
-## Explainability design
+## Failure policy
 
-Every `SoundEvent` contains three reasons:
+All production backends are mandatory. Missing configuration, empty detections, SAM/VLM errors, and audio asset/backend failures raise errors. The user must fix model configuration, prompts, thresholds, Foley routing, or backend availability rather than relying on demo substitutions.
 
-1. `visual_reason`: detected object/event, motion score, contact score, bbox.
-2. `feedback_reason`: prior edits such as lower collision intensity, shorter footstep, sparse density.
-3. `planning_reason`: style and scene-level choice such as restrained/cinematic and duration/intensity.
+## Vision contracts
 
-This supports user trust: the user can see both the video evidence and the learned preference behind the decision.
+- YOLO: local `ultralytics` weights or hosted endpoint.
+- GroundingDINO: hosted prompted detector endpoint.
+- SAM: hosted segmentation endpoint that can refine bbox and provide mask area.
+- VLM: hosted multimodal endpoint that decides whether a detection is sound-worthy and returns `object_label`, `event_type`, `confidence`, `duration`, and optional scores/description.
 
-## Human-in-the-loop learning
+## Audio contracts
 
-The system stores each user action as a structured `FeedbackLog`.
+- `foley`: strict asset retrieval from `SONICFRAME_FOLEY_DIR`; missing asset is an error.
+- `generative`: hosted backend returning WAV bytes or base64 WAV.
+- `hybrid`: Foley first, generative only when an asset is missing; still no procedural fallback.
 
-- Delete sound → reduce density and lower that event type intensity.
-- Adjust volume → update event/object multiplier.
-- Adjust time shorter → mark object/sound type as `prefer_short`.
-- Change style → update default style.
-- Choose candidate → increment variant preference and record contextual reward stats.
-- Natural language feedback → keyword parser for Korean/English intent.
+## HITL loop
 
-The result is a `UserPreferenceProfile` that is immediately applied during replanning.
-
-## Performance choices
-
-The project is designed to run on a laptop during a hackathon demo.
-
-- Video is sampled at `SONICFRAME_SAMPLE_FPS`, default 6 fps.
-- Audio rendering is vectorized with NumPy.
-- Project state is JSON-backed, no database required.
-- UI and API can run independently.
-
-## Extension points
-
-- Configure `VisionCascade` with YOLO/GroundingDINO detector, SAM segmenter and a VLM instead of replacing the whole `VideoAnalyzer`.
-- Configure `build_audio_engine_from_env()` for Foley retrieval or hosted diffusion/audio generation while preserving `ProceduralAudioEngine` as fallback.
-- Replace the lightweight contextual reward stats in `FeedbackInterpreter` with a pairwise preference model/reward model when enough logs are available.
-- Add DAW export such as EDL, AAF, or Reaper project files.
+Feedback logs update `UserPreferenceProfile`. Replanning uses the original VLM-backed `VisualEvent` evidence plus learned profile multipliers and contextual candidate scores.
