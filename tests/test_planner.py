@@ -3,7 +3,7 @@ from sonicframe_hitl.planner import SoundPlanner
 
 
 def make_video():
-    return VideoAsset(filename="demo.mp4", path="demo.mp4", duration=5.0, fps=24, width=640, height=360)
+    return VideoAsset(filename="production_clip.mp4", path="production_clip.mp4", duration=5.0, fps=24, width=640, height=360)
 
 
 def test_planner_generates_explainable_sound_event():
