@@ -10,7 +10,7 @@ from .models import ProjectState
 
 
 class ProjectStore:
-    """JSON-backed project storage for hackathon demos and local prototypes."""
+    """JSON-backed project storage for production backend runs and local review sessions."""
 
     def __init__(self, root: Path | None = None) -> None:
         self.root = root or ensure_workspace()

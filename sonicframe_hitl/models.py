@@ -56,11 +56,10 @@ class VisualEvidence(BaseModel):
     motion_score: float = Field(default=0.0, ge=0.0)
     contact_score: float = Field(default=0.0, ge=0.0)
     scene_id: str | None = None
-    # Added for detector/segmenter/VLM cascades. These fields are optional so the
-    # motion-only fallback and existing project JSON files remain compatible.
+    # Production detector/segmenter/VLM evidence fields.
     track_id: str | None = None
     mask_area: float | None = Field(default=None, ge=0.0)
-    source: str = "motion_heuristic"
+    source: str = "vision_cascade"
     attributes: dict[str, Any] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
 
