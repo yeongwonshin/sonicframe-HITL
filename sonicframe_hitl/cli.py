@@ -6,7 +6,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from .audio import ProceduralAudioEngine
+from .audio import build_audio_engine_from_env
 from .config import ensure_workspace, sample_fps
 from .exporters import export_project_bundle
 from .feedback import FeedbackInterpreter
@@ -32,7 +32,7 @@ def analyze(video_path: Path, style: SoundStyle = SoundStyle.balanced, render: b
     project.candidates = [c for event in project.timeline.events[:8] for c in planner.make_candidates(event, project.profile)]
     if render:
         wav = store.exports_dir / f"{project.id}_mix.wav"
-        project.artifacts["mix_wav"] = ProceduralAudioEngine().render_timeline(project.timeline, wav)
+        project.artifacts["mix_wav"] = build_audio_engine_from_env().render_timeline(project.timeline, wav)
     store.save(project)
     console.print(f"[bold green]Project created:[/] {project.id}")
     show_timeline(project.id)
@@ -84,7 +84,7 @@ def render(project_id: str) -> None:
     if not project.timeline:
         raise typer.BadParameter("Project has no timeline")
     wav = store.exports_dir / f"{project.id}_mix.wav"
-    path = ProceduralAudioEngine().render_timeline(project.timeline, wav)
+    path = build_audio_engine_from_env().render_timeline(project.timeline, wav)
     project.artifacts["mix_wav"] = path
     store.save(project)
     console.print(f"[bold green]Rendered:[/] {path}")
