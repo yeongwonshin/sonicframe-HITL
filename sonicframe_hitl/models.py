@@ -56,6 +56,12 @@ class VisualEvidence(BaseModel):
     motion_score: float = Field(default=0.0, ge=0.0)
     contact_score: float = Field(default=0.0, ge=0.0)
     scene_id: str | None = None
+    # Added for detector/segmenter/VLM cascades. These fields are optional so the
+    # motion-only fallback and existing project JSON files remain compatible.
+    track_id: str | None = None
+    mask_area: float | None = Field(default=None, ge=0.0)
+    source: str = "motion_heuristic"
+    attributes: dict[str, Any] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
 
 
@@ -134,6 +140,9 @@ class UserPreferenceProfile(BaseModel):
     object_profiles: dict[str, dict[str, Any]] = Field(default_factory=dict)
     avoided_event_types: list[str] = Field(default_factory=list)
     preferred_variants: dict[str, int] = Field(default_factory=dict)
+    # Lightweight online-learning state. Keys are contextual buckets such as
+    # "contact|door|balanced" and values contain per-variant reward statistics.
+    preference_stats: dict[str, dict[str, dict[str, float]]] = Field(default_factory=dict)
     text_rules: list[str] = Field(default_factory=list)
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -155,6 +164,8 @@ class CandidateSound(BaseModel):
     style: SoundStyle
     rationale: str
     preview_path: str | None = None
+    preference_score: float = 0.0
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProjectState(BaseModel):
