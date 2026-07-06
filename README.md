@@ -1,8 +1,8 @@
-# SonicFrame HITL
+# multimodal HITL
 
 **Production human-in-the-loop video-to-audio sound design system**
 
-SonicFrame HITL is a backend-integrated video-to-audio sound design system that analyzes visual events from video and generates synchronized sound timelines through a human-in-the-loop workflow. Visual events are produced through a mandatory **YOLO + GroundingDINO + SAM + VLM** cascade, and audio is rendered exclusively through **Foley assets**, a **hosted generative audio backend**, or a hybrid combination of both.
+multimodal HITL is a backend-integrated video-to-audio sound design system that analyzes visual events from video and generates synchronized sound timelines through a human-in-the-loop workflow. Visual events are produced through a mandatory **YOLO + GroundingDINO + SAM + VLM** cascade, and audio is rendered exclusively through **Foley assets**, a **hosted generative audio backend**, or a hybrid combination of both.
 
 The system is designed for workflows where sound decisions must be explainable, editable, and reproducible. Users can review detected sound-worthy events, provide natural-language feedback, select candidate sound plans, refine preferences, regenerate timelines, and export project outputs.
 
@@ -17,22 +17,22 @@ The system is designed for workflows where sound decisions must be explainable, 
 ## Required Environment Variables
 
 ```bash
-export SONICFRAME_WORKSPACE=workspace
-export SONICFRAME_SAMPLE_FPS=6
-export SONICFRAME_DEFAULT_STYLE=balanced
+export multimodal_WORKSPACE=workspace
+export multimodal_SAMPLE_FPS=6
+export multimodal_DEFAULT_STYLE=balanced
 
 # YOLO: either a hosted endpoint or local Ultralytics weights is required
-export SONICFRAME_YOLO_ENDPOINT=http://localhost:9000/detect
-# Or: export SONICFRAME_YOLO_WEIGHTS=/models/yolo/best.pt
+export multimodal_YOLO_ENDPOINT=http://localhost:9000/detect
+# Or: export multimodal_YOLO_WEIGHTS=/models/yolo/best.pt
 
 # GroundingDINO / SAM / VLM are required
-export SONICFRAME_GROUNDINGDINO_ENDPOINT=http://localhost:9001/detect
-export SONICFRAME_SAM_ENDPOINT=http://localhost:9002/segment
-export SONICFRAME_VLM_ENDPOINT=http://localhost:9003/describe
+export multimodal_GROUNDINGDINO_ENDPOINT=http://localhost:9001/detect
+export multimodal_SAM_ENDPOINT=http://localhost:9002/segment
+export multimodal_VLM_ENDPOINT=http://localhost:9003/describe
 
-export SONICFRAME_VISION_PROMPTS=person,foot,door,hand,glass,metal object,wooden object,vehicle,animal,falling object,impact,collision
-export SONICFRAME_MIN_DETECTION_CONFIDENCE=0.25
-export SONICFRAME_MAX_DETECTIONS_PER_FRAME=12
+export multimodal_VISION_PROMPTS=person,foot,door,hand,glass,metal object,wooden object,vehicle,animal,falling object,impact,collision
+export multimodal_MIN_DETECTION_CONFIDENCE=0.25
+export multimodal_MAX_DETECTIONS_PER_FRAME=12
 ```
 
 Audio rendering must be configured with one of the following backend modes.
@@ -40,8 +40,8 @@ Audio rendering must be configured with one of the following backend modes.
 ### Foley-only Backend
 
 ```bash
-export SONICFRAME_AUDIO_BACKEND=foley
-export SONICFRAME_FOLEY_DIR=/data/foley
+export multimodal_AUDIO_BACKEND=foley
+export multimodal_FOLEY_DIR=/data/foley
 ```
 
 In `foley` mode, rendering fails when a required Foley asset is missing.
@@ -49,19 +49,19 @@ In `foley` mode, rendering fails when a required Foley asset is missing.
 ### Generative Audio Backend
 
 ```bash
-export SONICFRAME_AUDIO_BACKEND=generative
-export SONICFRAME_AUDIO_ENDPOINT=http://localhost:9010/generate
+export multimodal_AUDIO_BACKEND=generative
+export multimodal_AUDIO_ENDPOINT=http://localhost:9010/generate
 ```
 
 ### Hybrid Backend
 
 ```bash
-export SONICFRAME_AUDIO_BACKEND=hybrid
-export SONICFRAME_FOLEY_DIR=/data/foley
-export SONICFRAME_AUDIO_ENDPOINT=http://localhost:9010/generate
+export multimodal_AUDIO_BACKEND=hybrid
+export multimodal_FOLEY_DIR=/data/foley
+export multimodal_AUDIO_ENDPOINT=http://localhost:9010/generate
 ```
 
-In `hybrid` mode, SonicFrame attempts Foley matching first and falls back to the hosted generative audio backend when no matching Foley asset exists.
+In `hybrid` mode, multimodal attempts Foley matching first and falls back to the hosted generative audio backend when no matching Foley asset exists.
 
 ## Backend HTTP Contracts
 
@@ -177,22 +177,22 @@ pip install -e '.[vision]'
 ### CLI
 
 ```bash
-sonicframe analyze path/to/video.mp4 --style balanced
-sonicframe feedback <project_id> "Make this scene quieter and the footsteps heavier."
-sonicframe render <project_id>
-sonicframe export <project_id>
+multimodal analyze path/to/video.mp4 --style balanced
+multimodal feedback <project_id> "Make this scene quieter and the footsteps heavier."
+multimodal render <project_id>
+multimodal export <project_id>
 ```
 
 ### API Server
 
 ```bash
-uvicorn sonicframe_hitl.api.main:app --reload
+uvicorn multimodal_hitl.api.main:app --reload
 ```
 
 ### Streamlit Workbench
 
 ```bash
-streamlit run sonicframe_hitl/ui/app.py
+streamlit run multimodal_hitl/ui/app.py
 ```
 
 ## Foley Asset Structure
@@ -214,13 +214,13 @@ Foley lookup order:
 3. `object_label`
 4. `metadata.foley_tags`
 
-When no matching WAV asset is found, `SONICFRAME_AUDIO_BACKEND=foley` fails immediately. In `hybrid` mode, the system routes the request to the generative audio backend.
+When no matching WAV asset is found, `multimodal_AUDIO_BACKEND=foley` fails immediately. In `hybrid` mode, the system routes the request to the generative audio backend.
 
 ## Project Structure
 
 ```text
-sonicframe_hitl/
-  sonicframe_hitl/
+multimodal_hitl/
+  multimodal_hitl/
     api/main.py          # FastAPI endpoints
     ui/app.py            # Streamlit HITL workbench
     models.py            # VideoAsset, VisualEvent, SoundTimeline, FeedbackLog
@@ -253,7 +253,7 @@ Video Upload
 
 ## Export Outputs
 
-SonicFrame can export project artifacts for review, integration, or downstream production workflows, including:
+multimodal can export project artifacts for review, integration, or downstream production workflows, including:
 
 - Sound timeline JSON
 - Event-level CSV summaries
